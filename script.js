@@ -4,7 +4,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectFolderBtn = document.getElementById('selectFolderBtn');
     const folderInput = document.getElementById('folderInput');
     const statusDiv = document.getElementById('status');
-    const progressDiv = document.getElementById('progress');
     const seriesListDiv = document.getElementById('seriesList');
     
     // Создаем Web Worker
