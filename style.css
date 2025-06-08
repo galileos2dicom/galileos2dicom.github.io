@@ -71,3 +71,78 @@ button:hover {
     width: 0%;
     transition: width 0.3s;
 }
+
+.series-item {
+    margin: 15px 0;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+}
+
+.series-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.download-btn {
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.download-btn:disabled, .download-btn:disabled:hover {
+    background-color: #ccc;
+}
+
+.download-btn:hover {
+    background-color: #45a049;
+}
+
+.progress-container {
+    width: 100%;
+    background-color: #f1f1f1;
+    border-radius: 4px;
+    margin-top: 5px;
+}
+
+.progress-bar {
+    height: 20px;
+    background-color: #4CAF50;
+    border-radius: 4px;
+    width: 0%;
+    transition: width 0.3s;
+}
+
+.error-message {
+    color: #d32f2f;
+    background-color: #ffebee;
+    padding: 10px;
+    border-radius: 4px;
+    margin: 10px 0;
+    border-left: 4px solid #d32f2f;
+}
+
+.drop-area.error {
+    border-color: #d32f2f;
+    background-color: #ffebee;
+}
+
+.retry-btn {
+    background-color: #d32f2f;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 4px;
+    margin-top: 10px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.retry-btn:hover {
+    background-color: #b71c1c;
+}

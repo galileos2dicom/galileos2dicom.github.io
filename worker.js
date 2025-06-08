@@ -25,13 +25,12 @@ self.onmessage = async function(e) {
 };
 
 async function processSeries({ seriesName, studyInstanceUID, seriesInstanceUID, metadata, dataFiles}) {
-    const totalFiles = dataFiles.length;
     try {
         const zip = new JSZip();
         const seriesFolder = zip.folder(seriesName);
         
         // Обрабатываем каждый файл данных
-        for (let i = 0; i < totalFiles; i++) {
+        for (let i = 0; i < dataFiles.length; i++) {
             const file = dataFiles[i];
             
             try {
@@ -48,12 +47,13 @@ async function processSeries({ seriesName, studyInstanceUID, seriesInstanceUID, 
                         ...metadata,
                         studyInstanceUID,
                         seriesInstanceUID,
-                        instanceNumber: i + 1
+                        instanceNumber: parseInt(file.name.replace(seriesName+'_', '')),
+                        studyId: seriesName,
                     }
                 );
                 
                 // Добавляем в архив
-                const fileName = `${seriesName}_${i}.dcm`;
+                const fileName = `${file.name}.dcm`;
                 seriesFolder.file(fileName, dicomBuffer);
                 
                 // Отправляем прогресс
@@ -61,7 +61,7 @@ async function processSeries({ seriesName, studyInstanceUID, seriesInstanceUID, 
                     type: 'progress',
                     data: {
                         current: i + 1,
-                        total: totalFiles,
+                        total: dataFiles.length,
                         seriesName
                     }
                 });
@@ -86,7 +86,10 @@ async function processSeries({ seriesName, studyInstanceUID, seriesInstanceUID, 
     } catch (error) {
         self.postMessage({
             type: 'error',
-            data: `Ошибка при обработке серии ${seriesName}: ${error.message}`
+            data: {
+                seriesName,
+                error: `Ошибка при обработке серии ${seriesName}: ${error.message}`
+            }
         });
     }
 }
@@ -102,68 +105,75 @@ function readFileAsArrayBuffer(file) {
     });
 }
 
+// Функция для распаковки gzip (без использования pako)
 async function decompressGzip(compressedData) {
     // Используем Compression API, если доступен
     if ('CompressionStream' in self) {
         const stream = new Blob([compressedData]).stream();
         const decompressedStream = stream.pipeThrough(new DecompressionStream('gzip'));
         const decompressedBlob = await new Response(decompressedStream).arrayBuffer();
-        return new Uint8Array(decompressedBlob);
+        return new Uint16Array(decompressedBlob);
     } else {
+        // Fallback для браузеров без Compression API
         throw new Error('Decompression API not supported in this browser');
     }
 }
 
 function createDicomFile(pixelData, metadata) {
     const { DicomMetaDictionary, DicomDict } = dcmjs.data;
-    
-    // 1. Создаем натурализованный dataset
-    const naturalized = {
+
+    const slicePosition = metadata.centerZ + (metadata.instanceNumber - metadata.sizeZ / 2.0) * metadata.voxelSizeZ;
+
+    // 1. Денатурализуем данные с явными тегами
+    const dataset = {
         // Patient Module
-        PatientName: metadata.patientName || 'Anonymous',
-        PatientID: metadata.patientID || '',
-        
+        '00100010': { vr: 'PN', Value: [metadata.patientName || 'Anonymous'] }, // PatientName
+        '00100020': { vr: 'LO', Value: [metadata.patientID || ''] }, // PatientID
+
         // Study Module
-        StudyInstanceUID: metadata.studyInstanceUID,
-        StudyDate: metadata.studyDate || '',
-        StudyTime: metadata.studyTime || '',
-        
+        '0020000D': { vr: 'UI', Value: [metadata.studyInstanceUID] }, // StudyInstanceUID
+        '00080020': { vr: 'DA', Value: [metadata.studyDate || ''] }, // StudyDate
+        '00080030': { vr: 'TM', Value: [metadata.studyTime || ''] }, // StudyTime
+
         // Series Module
-        SeriesInstanceUID: metadata.seriesInstanceUID,
-        Modality: metadata.modality || 'CT',
-        SeriesDescription: metadata.seriesDescription || '',
-        
+        '0020000E': { vr: 'UI', Value: [metadata.seriesInstanceUID] }, // SeriesInstanceUID
+        '00200032': { vr: 'DS', Value: [metadata.centerX.toFixed(4), metadata.centerY.toFixed(4), slicePosition.toFixed(4)] }, // ImagePositionPatient
+        '00200037': { vr: 'DS', Value: ['1\\0\\0\\0\\1\\0'] }, // ImageOrientationPatient
+        '00201041': { vr: 'DS', Value: [slicePosition.toFixed(4)] }, // SliceLocation
+        '00080060': { vr: 'CS', Value: [metadata.modality || 'CT'] }, // Modality
+
         // Image Module
-        InstanceNumber: (metadata.instanceNumber || 1).toString(),
-        Rows: metadata.rows || 512,
-        Columns: metadata.columns || 512,
-        PixelSpacing: metadata.pixelSpacing || [1, 1],
-        SliceThickness: metadata.sliceThickness || 1,
-        SamplesPerPixel: 1,
-        PhotometricInterpretation: 'MONOCHROME2',
-        BitsAllocated: 16,
-        BitsStored: 16,
-        HighBit: 15,
-        PixelRepresentation: 1, // signed
-        RescaleIntercept: 0,
-        RescaleSlope: 1,
-        
+        '00200013': { vr: 'IS', Value: [metadata.instanceNumber.toString()] }, // InstanceNumber
+        '00280010': { vr: 'US', Value: [metadata.sizeY] }, // Rows
+        '00280011': { vr: 'US', Value: [metadata.sizeX] }, // Columns
+        '00280030': { vr: 'DS', Value: [metadata.voxelSizeX.toString(), metadata.voxelSizeY.toString()] }, // PixelSpacing
+        '00180050': { vr: 'DS', Value: [metadata.voxelSizeZ?.toString() || '1.0'] }, // SliceThickness
+        '00280004': { vr: 'CS', Value: ['MONOCHROME2'] }, // PhotometricInterpretation
+        '00280100': { vr: 'US', Value: [16] }, // BitsAllocated
+        '00280101': { vr: 'US', Value: [16] }, // BitsStored
+        '00280102': { vr: 'US', Value: [15] }, // HighBit
+        '00280103': { vr: 'US', Value: [1] }, // PixelRepresentation (Signed)
+        '00281052': { vr: 'DS', Value: [-1024] }, // RescaleIntercept
+        '00281053': { vr: 'DS', Value: [1] }, // RescaleSlope
+
         // Уникальные идентификаторы
-        SOPInstanceUID: DicomMetaDictionary.uid(),
-        SOPClassUID: '1.2.840.10008.5.1.4.1.1.2', // CT Image Storage
-        
+        '00080018': { vr: 'UI', Value: [DicomMetaDictionary.uid()] }, // SOPInstanceUID
+        '00080016': { vr: 'UI', Value: ['1.2.840.10008.5.1.4.1.1.2'] }, // SOPClassUID (CT Image Storage)
+
         // Пиксельные данные
-        PixelData: new Uint16Array(pixelData)
+        '7FE00010': { vr: 'OW', Value: [pixelData.buffer] } // PixelData
     };
 
-    // 2. Создаем DICOM словарь
-    const dicomDict = new DicomDict(naturalized);
-    
-    // 3. Устанавливаем Transfer Syntax
-    dicomDict.meta = {
+    // 2. Создаем DICOM-словарь
+    const dicomDict = new DicomDict({
+        '00020001': { vr: 'OB', Value: [new Uint8Array([0, 1]).buffer] }, // FileMetaInformationVersion
+        '00020002': { vr: 'UI', Value: ['1.2.840.10008.5.1.4.1.1.2'] }, // MediaStorageSOPClassUID
+        '00020003': { vr: 'UI', Value: [DicomMetaDictionary.uid()] }, // MediaStorageSOPInstanceUID
         '00020010': { vr: 'UI', Value: ['1.2.840.10008.1.2.1'] } // Explicit VR Little Endian
-    };
-    
-    // 4. Преобразуем в ArrayBuffer
+    });
+    dicomDict.dict = dataset;
+
+    // 3. Преобразуем в ArrayBuffer
     return dicomDict.write();
 }
+
