@@ -1,20 +1,5 @@
 // Web Worker для обработки файлов
-self.importScripts('https://unpkg.com/dcmjs@0.41.0/build/dcmjs.js', 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
-
-// Собственная реализация определения VR для тегов
-function getVrForTag(tag) {
-    const tagDict = dcmjs.data.DicomMetaDictionary.dictionary[tag];
-    return tagDict ? tagDict.vr : null;
-}
-
-// Функция для обработки чисел в Decimal String (DS)
-function formatDS(value) {
-    if (typeof value === 'number') {
-        // Ограничиваем длину до 16 символов и убираем лишние нули
-        return value.toString().substring(0, 16).replace(/(\.\d*?[1-9])0+$/, '$1');
-    }
-    return value;
-}
+self.importScripts('dcmjs-0.41.0.min.js', 'jszip-3.10.1.min.js');
 
 self.onmessage = async function(e) {
     const { type, data } = e.data;
@@ -24,11 +9,13 @@ self.onmessage = async function(e) {
     }
 };
 
-async function processSeries({ seriesName, studyInstanceUID, seriesInstanceUID, metadata, dataFiles}) {
+async function processSeries({ seriesName, metadata, dataFiles}) {
     try {
         const zip = new JSZip();
         const seriesFolder = zip.folder(seriesName);
-        
+        const studyInstanceUID = dcmjs.data.DicomMetaDictionary.uid();
+        const seriesInstanceUID = dcmjs.data.DicomMetaDictionary.uid();
+
         // Обрабатываем каждый файл данных
         for (let i = 0; i < dataFiles.length; i++) {
             const file = dataFiles[i];

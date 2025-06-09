@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const seriesListDiv = document.getElementById('seriesList');
     
     // Создаем Web Worker
-    const worker = new Worker('worker.js');
+    const worker = new Worker('worker.min.js');
     let seriesData = {};
     
     // Обработчики для drag and drop
@@ -194,9 +194,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         statusDiv.textContent = `Найдено ${volMetaFiles.size} серий для конвертации`;
     
-        // Генерируем UID для исследования
-        const studyInstanceUID = dcmjs.data.DicomMetaDictionary.uid();
-    
         // 3. Для каждой папки с серией
         for (const volMetaFile of volMetaFiles) {
             seriesData[volMetaFile] = {
@@ -223,7 +220,6 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
             seriesListDiv.appendChild(seriesItem);
 
-            const seriesInstanceUID = dcmjs.data.DicomMetaDictionary.uid();
             try {
                 updateSeriesStatus(volMetaFile, `Обработка серии ${volMetaFile}...`);
             
@@ -261,8 +257,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     type: 'processSeries',
                     data: {
                         seriesName: volMetaFile,
-                        studyInstanceUID,
-                        seriesInstanceUID,
                         metadata,
                         dataFiles: volDataFiles,
                     }
