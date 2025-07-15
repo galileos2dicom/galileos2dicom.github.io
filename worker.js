@@ -57,6 +57,14 @@ async function processSeries({ seriesName, metadata, dataFiles}) {
                 console.error(`Ошибка при обработке файла ${file.name}:`, error);
             }
         }
+
+        self.postMessage({
+            type: 'status',
+            data: {
+                message: 'Создание архива...',
+                seriesName
+            }
+        });
         
         // Генерируем архив
         const zipBlob = await zip.generateAsync({ type: 'blob' });
