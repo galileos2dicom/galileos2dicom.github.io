@@ -1,67 +1,64 @@
-// Основной поток обработки
 document.addEventListener('DOMContentLoaded', () => {
     const dropArea = document.getElementById('dropArea');
     const selectFolderBtn = document.getElementById('selectFolderBtn');
     const folderInput = document.getElementById('folderInput');
     const statusDiv = document.getElementById('status');
     const seriesListDiv = document.getElementById('seriesList');
-    
-    // Создаем Web Worker
-    const worker = new Worker('worker.min.js');
-    let seriesData = {};
-    
+
     // Обработчики для drag and drop
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         dropArea.addEventListener(eventName, preventDefaults, false);
     });
-    
+
     function preventDefaults(e) {
         e.preventDefault();
         e.stopPropagation();
     }
-    
+
     ['dragenter', 'dragover'].forEach(eventName => {
         dropArea.addEventListener(eventName, highlight, false);
     });
-    
+
     ['dragleave', 'drop'].forEach(eventName => {
         dropArea.addEventListener(eventName, unhighlight, false);
     });
-    
+
     function highlight() {
         dropArea.classList.add('highlight');
     }
-    
+
     function unhighlight() {
         dropArea.classList.remove('highlight');
     }
-    
+
+    // Обработчик переноса файлов/папок
     dropArea.addEventListener('drop', handleDrop, false);
-    
-    // Обработчик выбора папки через кнопку
+
     selectFolderBtn.addEventListener('click', () => {
         folderInput.click();
     });
-    
+    // Обработчик выбора папки через кнопку
     folderInput.addEventListener('change', handleFolderSelect, false);
 
-    // Обработчик сообщений от Worker
-    worker.onmessage = function(e) {
-        const { type, data } = e.data;
-        
-        switch(type) {
+    let seriesData = {};
+
+    const worker = new Worker('worker.min.js');
+    worker.onmessage = function (e) {
+        const {type, data} = e.data;
+
+        switch (type) {
             case 'progress':
                 updateSeriesProgress(data.seriesName, data.current, data.total);
                 break;
-                
+
             case 'complete':
                 handleSeriesComplete(data.seriesName, data.zipBlob);
                 break;
-                
+
             case 'error':
                 updateSeriesStatus(data.seriesName, `Ошибка: ${data.error}`);
                 break;
-                
+
             case 'status':
                 updateSeriesStatus(data.seriesName, data.message);
                 break;
@@ -72,7 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const progress = document.getElementById(`progress-${seriesName}`);
         const percentage = Math.round((current / total) * 100);
         progress.style.width = `${percentage}%`;
-        
+
         seriesData[seriesName].processed = current;
         updateSeriesStatus(seriesName, `Обработано ${current} из ${total} файлов`);
     }
@@ -80,11 +77,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleSeriesComplete(seriesName, zipBlob) {
         seriesData[seriesName].ready = true;
         seriesData[seriesName].zipBlob = zipBlob;
-        
+
         const btn = document.getElementById(`download-${seriesName}`);
         btn.disabled = false;
         btn.onclick = () => downloadSeries(seriesName);
-        
+
         updateSeriesStatus(seriesName, 'Готово к скачиванию');
     }
 
@@ -94,212 +91,207 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function downloadSeries(seriesName) {
-        const { zipBlob } = seriesData[seriesName];
+        const {zipBlob} = seriesData[seriesName];
         const url = URL.createObjectURL(zipBlob);
         const a = document.createElement('a');
         a.href = url;
         a.download = `${seriesName}.zip`;
         document.body.appendChild(a);
         a.click();
-        
+
         setTimeout(() => {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }, 100);
     }
-    
-    async function handleDrop(e) {
-        const items = e.dataTransfer.items;
-        await processItems(items);
+
+    function createSeries(seriesName) {
+        const seriesItemID = `series-${seriesName}`;
+
+        if (document.getElementById(seriesItemID)) {
+            document.getElementById(seriesItemID).remove();
+        }
+
+        const seriesItem = document.createElement('div');
+        seriesItem.className = 'series-item';
+        seriesItem.id = seriesItemID;
+        seriesItem.innerHTML = `
+                <div class="series-info">
+                    <span>Серия: ${seriesName}</span>
+                    <button class="download-btn" id="download-${seriesName}" disabled>
+                        Скачать
+                    </button>
+                </div>
+                <div class="progress-container">
+                    <div class="progress-bar" id="progress-${seriesName}"></div>
+                </div>
+                <div id="status-${seriesName}">Ожидание обработки...</div>
+            `;
+        seriesListDiv.appendChild(seriesItem);
     }
 
     async function handleFolderSelect(e) {
-        const files = e.target.files; // Переименовано в files вместо fileList
+        const files = e.target.files;
         if (files.length === 0) return;
-        
-        await processFiles(files); // Передаём files вместо fileList
-    } 
-    
-    async function processItems(items) {
-        const entries = [];
-        
-        for (let item of items) {
+
+        await processFiles(Array.from(files));
+    }
+
+    async function handleDrop(e) {
+        let files = []
+
+        for (let item of e.dataTransfer.items) {
             const entry = item.webkitGetAsEntry();
-            if (entry) entries.push(entry);
+
+            if (entry.isDirectory) {
+                files.push(...await readDirectory(entry.createReader()));
+
+                continue
+            }
+
+            files.push(await getFile(entry));
         }
-        
-        if (entries.length === 0) return;
-        
-        // Обрабатываем только первую папку (если их несколько)
-        if (entries[0].isDirectory) {
-            const dirReader = entries[0].createReader();
-            const files = await readDirectory(dirReader);
-            await processFiles(files);
-        }
+
+        if (files.length === 0) return;
+
+        await processFiles(files);
     }
-    
-    function readDirectory(dirReader) {
-        return new Promise((resolve) => {
-            dirReader.readEntries(async (entries) => {
-                const files = [];
-                
-                for (let entry of entries) {
-                    if (entry.isFile) {
-                        const file = await getFile(entry);
-                        files.push(file);
-                    }
-                }
-                
-                resolve(files);
-            });
-        });
-    }
-    
+
     function getFile(fileEntry) {
-        return new Promise((resolve) => {
-            fileEntry.file(resolve);
+        return new Promise((resolve, reject) => {
+            fileEntry.file(resolve, reject);
         });
     }
-    
-    async function processFiles(fileList) {
+
+    async function readDirectory(dirReader) {
+        let files = [];
+
+        const readBatch = () => {
+            return new Promise((resolve, reject) => {
+                dirReader.readEntries(resolve, reject); // readEntries возвращает до 100 шт.
+            });
+        };
+
+        let batch;
+        do {
+            batch = await readBatch();
+            for (let entry of batch) {
+                if (entry.isFile) {
+                    files.push(await getFile(entry));
+
+                    continue;
+                }
+
+                files.push(...await readDirectory(entry.createReader()));
+            }
+        } while (batch.length > 0); // Продолжаем, пока браузер что-то возвращает
+
+        return files;
+    }
+
+    async function processFiles(files) {
+        dropArea.classList.remove('error');
         statusDiv.textContent = 'Анализ структуры папки...';
-        seriesListDiv.innerHTML = '';
-        
-        // Преобразуем FileList в массив
-        const allFiles = Array.from(fileList);
-        
-        // 1. Находим файл .gwg
-        const gwgFile = allFiles.find(f => f.name.endsWith('.gwg'));
-        if (!gwgFile) {
+
+        const gwgFiles = files.filter(f => f.name.endsWith('.gwg'));
+        if (gwgFiles.length === 0) {
             handleError('Файл .gwg не найден в выбранной папке');
             return;
         }
-        
-        const studyName = gwgFile.name.replace('.gwg', '');
-        const studySeriesRegEx = new RegExp(studyName + '_vol_[0-9]+$', 'i');
-        
-        // 2. Находим мета-файлы с префиксом _vol_*
-        const volMetaFiles = new Set();
-        allFiles.forEach(f => {
-            if (studySeriesRegEx.test(f.webkitRelativePath)) {
-                const parts = f.webkitRelativePath.split('/');
-                volMetaFiles.add(parts[parts.length-1]);
-            }
+
+        const studySeriesRegExps = gwgFiles.map((gwgFile, i, arr) => {
+            return new RegExp(gwgFile.name.replace('.gwg', '') + '_vol_[0-9]+$', 'i')
         });
-        
-        if (volMetaFiles.size === 0) {
-            handleError('Папки с сериями (_vol_*) не найдены');
+
+        const metadataFiles = files.filter((f, i, arr) => {
+            for (const studySeriesRegEx of studySeriesRegExps) {
+                if (studySeriesRegEx.test(f.name)) {
+                    return true
+                }
+            }
+
+            return false;
+        });
+
+        if (metadataFiles.length === 0) {
+            handleError('Мета-файлы серий не найдены');
             return;
         }
 
-        statusDiv.textContent = `Найдено ${volMetaFiles.size} серий для конвертации`;
-    
-        // 3. Для каждой папки с серией
-        for (const volMetaFile of volMetaFiles) {
-            seriesData[volMetaFile] = {
+        statusDiv.textContent = `Найдено ${metadataFiles.length} серий для конвертации.`;
+
+        for (const metadataFile of metadataFiles) {
+            const seriesName = metadataFile.name;
+            seriesData[seriesName] = {
                 ready: false,
                 zipBlob: null,
                 processed: 0,
                 total: 0
             };
-            // Создаем элемент для серии
-            const seriesItem = document.createElement('div');
-            seriesItem.className = 'series-item';
-            seriesItem.id = `series-${volMetaFile}`;
-            seriesItem.innerHTML = `
-                <div class="series-info">
-                    <span>Серия: ${volMetaFile}</span>
-                    <button class="download-btn" id="download-${volMetaFile}" disabled>
-                        Скачать
-                    </button>
-                </div>
-                <div class="progress-container">
-                    <div class="progress-bar" id="progress-${volMetaFile}"></div>
-                </div>
-                <div id="status-${volMetaFile}">Ожидание обработки...</div>
-            `;
-            seriesListDiv.appendChild(seriesItem);
+
+            createSeries(seriesName);
 
             try {
-                updateSeriesStatus(volMetaFile, `Обработка серии ${volMetaFile}...`);
-            
-                const zip = new JSZip();
-                const seriesFolder = zip.folder(volMetaFile);
-                const seriesFiles = allFiles.filter(f => 
-                    f.name.startsWith(volMetaFile)
-                );
-            
-                // Находим файл с метаданными (название как у папки)
-                const metadataFile = seriesFiles.find(f => 
-                    f.name === volMetaFile
-                );
-            
-                if (!metadataFile) {
-                    throw new Error(`Файл метаданных не найден для серии ${volMetaFile}`);
-                }
-            
-                // Читаем и парсим метаданные
+                updateSeriesStatus(seriesName, `Обработка серии ${seriesName}...`);
+
                 const metadata = await parseMetadataFile(metadataFile);
-            
-                // Находим файлы с данными (префикс _vol_*_*)
-                const volDataFiles = seriesFiles.filter(f => 
-                    f.name.startsWith(`${volMetaFile}_`)
+
+                const sliceFiles = files.filter(f =>
+                    f.name.startsWith(`${seriesName}_`)
                 );
-                seriesData[volMetaFile].total = seriesFiles.length;
-            
-                if (volDataFiles.length === 0) {
-                    throw new Error(`Файлы с данными не найдены для серии ${volMetaFile}`);
+                seriesData[seriesName].total = sliceFiles.length;
+
+                if (sliceFiles.length === 0) {
+                    throw new Error(`Слайсы для серии ${seriesName} не найдены`);
                 }
-            
-                updateSeriesStatus(volMetaFile, `Найдено ${volDataFiles.length} файлов данных в серии ${volMetaFile}`);
-            
+
+                updateSeriesStatus(seriesName, `Найдено ${sliceFiles.length} слайсов в серии ${seriesName}`);
+
                 worker.postMessage({
                     type: 'processSeries',
                     data: {
-                        seriesName: volMetaFile,
+                        seriesName: seriesName,
                         metadata,
-                        dataFiles: volDataFiles,
+                        sliceFiles: sliceFiles,
                     }
                 });
-            
+
             } catch (error) {
-                handleError(`Ошибка при обработке серии: ${error.message}`, volMetaFile);
+                console.error(seriesName, error)
+                handleError(error.message, seriesName);
             }
         }
     }
- 
+
     async function parseMetadataFile(file) {
-        return new Promise((resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
             const reader = new FileReader();
-            
+
             reader.onload = async (e) => {
                 try {
-                    // 4.2.1.1. Распаковываем gzip
                     const compressedData = new Uint8Array(e.target.result);
                     const decompressedData = await decompressGzip(compressedData);
-                    
-                    // 4.2.1.2. Парсим XML
+
                     const xmlText = new TextDecoder().decode(decompressedData);
                     const parser = new DOMParser();
                     const xmlDoc = parser.parseFromString(xmlText, "application/xml");
-                    
-                    // Извлекаем нужные метаданные из XML
+
                     const metadata = extractMetadataFromXML(xmlDoc);
                     resolve(metadata);
-                    
+
                 } catch (error) {
                     reject(new Error(`Ошибка при парсинге файла метаданных: ${error.message}`));
                 }
             };
-            
+
             reader.onerror = () => {
                 reject(new Error('Ошибка при чтении файла метаданных'));
             };
-            
+
             reader.readAsArrayBuffer(file);
         });
     }
-    
+
     function extractMetadataFromXML(doc) {
         const root = doc.documentElement;
 
@@ -307,7 +299,6 @@ document.addEventListener('DOMContentLoaded', () => {
             throw new Error('Неверный формат XML: ожидался FBPParams');
         }
 
-        // Поиск узла LibParams
         const libParams = Array.from(root.children).find(node => node.nodeName === 'LibParams');
         if (!libParams) {
             throw new Error('Не найден узел LibParams');
@@ -397,48 +388,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
         return metadata;
     }
-    
-    // Функция для распаковки gzip (без использования pako)
+
     async function decompressGzip(compressedData) {
-        // Используем Compression API, если доступен
         if ('CompressionStream' in window) {
             const stream = new Blob([compressedData]).stream();
             const decompressedStream = stream.pipeThrough(new DecompressionStream('gzip'));
             const decompressedBlob = await new Response(decompressedStream).arrayBuffer();
             return new Uint8Array(decompressedBlob);
-        } else {
-            // Fallback для браузеров без Compression API
-            throw new Error('Decompression API not supported in this browser');
         }
+
+        throw new Error('Decompression API not supported in this browser');
     }
 
     function handleError(errorMessage, seriesName = null) {
         console.error(errorMessage);
-        
-        if (seriesName) {
-            // Если ошибка относится к конкретной серии
+
+        if (seriesName) { // Если ошибка относится к конкретной серии
             updateSeriesStatus(seriesName, `Ошибка: ${errorMessage}`);
             const progress = document.getElementById(`progress-${seriesName}`);
             if (progress) progress.style.backgroundColor = '#ff6b6b';
-        } else {
-            // Общая ошибка
-            statusDiv.innerHTML = `<div class="error-message">${errorMessage}</div>`;
-            
-            // Очищаем список серий при общей ошибке
-            seriesListDiv.innerHTML = '';
-            
-            // Показываем кнопку "Попробовать снова"
-            const retryBtn = document.createElement('button');
-            retryBtn.textContent = 'Попробовать снова';
-            retryBtn.className = 'retry-btn';
-            retryBtn.onclick = () => {
-                statusDiv.textContent = '';
-                dropArea.classList.remove('error');
-                retryBtn.remove();
-            };
-            
-            statusDiv.appendChild(retryBtn);
-            dropArea.classList.add('error');
+
+            return;
         }
+
+        // Общая ошибка
+        statusDiv.innerHTML = `<div class="error-message">${errorMessage}</div>`;
+        seriesListDiv.innerHTML = '';
+        seriesData = {};
+        dropArea.classList.add('error');
     }
 });
