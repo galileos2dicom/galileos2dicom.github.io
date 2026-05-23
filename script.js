@@ -193,24 +193,9 @@ document.addEventListener('DOMContentLoaded', () => {
         dropArea.classList.remove('error');
         statusDiv.textContent = 'Анализ структуры папки...';
 
-        const gwgFiles = files.filter(f => f.name.endsWith('.gwg'));
-        if (gwgFiles.length === 0) {
-            handleError('Файл .gwg не найден в выбранной папке');
-            return;
-        }
-
-        const studySeriesRegExps = gwgFiles.map((gwgFile, i, arr) => {
-            return new RegExp(gwgFile.name.replace('.gwg', '') + '_vol_[0-9]+$', 'i')
-        });
-
+        const metadataFilenameRegExp = new RegExp('^[0-9a-f]+_vol_[0-9]+$', 'i')
         const metadataFiles = files.filter((f, i, arr) => {
-            for (const studySeriesRegEx of studySeriesRegExps) {
-                if (studySeriesRegEx.test(f.name)) {
-                    return true
-                }
-            }
-
-            return false;
+            return metadataFilenameRegExp.test(f.name);
         });
 
         if (metadataFiles.length === 0) {

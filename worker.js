@@ -131,8 +131,8 @@ function createDicomFile(pixelData, metadata) {
         '00200013': { vr: 'IS', Value: [metadata.instanceNumber.toString()] }, // InstanceNumber
         '00280010': { vr: 'US', Value: [metadata.sizeY] }, // Rows
         '00280011': { vr: 'US', Value: [metadata.sizeX] }, // Columns
-        '00280030': { vr: 'DS', Value: [metadata.voxelSizeX.toString(), metadata.voxelSizeY.toString()] }, // PixelSpacing
-        '00180050': { vr: 'DS', Value: [metadata.voxelSizeZ?.toString() || '1.0'] }, // SliceThickness
+        '00280030': { vr: 'DS', Value: [metadata.voxelSizeX.toFixed(4), metadata.voxelSizeY.toFixed(4)] }, // PixelSpacing
+        '00180050': { vr: 'DS', Value: [metadata.voxelSizeZ?.toFixed(4) || '1.0'] }, // SliceThickness
         '00280004': { vr: 'CS', Value: ['MONOCHROME2'] }, // PhotometricInterpretation
         '00280100': { vr: 'US', Value: [16] }, // BitsAllocated
         '00280101': { vr: 'US', Value: [16] }, // BitsStored
