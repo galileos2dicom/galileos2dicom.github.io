@@ -1,0 +1,25 @@
+[package]
+name = "galileos2dicom-web"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+galileos2dicom-rs = { git = "https://github.com/galileos2dicom/galileos2dicom-rs", tag = "v1.0.0", default-features = false }
+# Версия должна совпадать с wasm-bindgen-cli, которым собирается pkg/ (см. build.sh)
+wasm-bindgen = "=0.2.129"
+# Без компрессии (Stored), как было с JSZip по умолчанию
+zip = { version = "9.0.5", default-features = false }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[dev-dependencies]
+flate2 = "1.1.9"
